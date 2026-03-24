@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PANGEA — Tectonic Plates & Volcanic Activity</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600&family=Barlow+Condensed:wght@300;400;600;700&family=Courier+Prime:ital@0;1&display=swap');
+
+:root {
+  --bg: #0a0602;
+  --lava: #ff4800;
+  --magma: #ff8c00;
+  --ember: #ffcc44;
+  --ocean: #0a4060;
+  --deep: #061828;
+  --crust: #8b4513;
+  --fault: #ff6622;
+  --subduct: #cc2200;
+  --diverge: #ff9944;
+  --text: #f5e8d0;
+  --muted: rgba(245,232,208,0.4);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  width:100vw; height:100vh;
+  overflow:hidden;
+  font-family:'Barlow', sans-serif;
+  color:var(--text);
+  cursor:grab;
+}
+body.dragging { cursor:grabbing; }
+
+/* ── FORGE BACKGROUND ── */
+body::before {
+  content:'';
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 70%, rgba(180,50,0,0.12) 0%, transparent 65%),
+    radial-gradient(ellipse 40% 30% at 15% 40%, rgba(255,100,0,0.06) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 40% at 85% 30%, rgba(100,30,0,0.08) 0%, transparent 60%);
+}
+
+/* Grid of geological strata */
+body::after {
+  content:'';
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  background-image:
+    linear-gradient(rgba(255,80,0,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,80,0,0.025) 1px, transparent 1px);
+  background-size:50px 50px;
+}
+
+/* ── CANVAS ── */
+#globe-canvas { position:fixed; inset:0; z-index:1; }
+#fx-canvas    { position:fixed; inset:0; z-index:2; pointer-events:none; }
+
+/* ── HUD TOP ── */
+#hud {
+  position:fixed; top:0; left:0; right:0; z-index:60;
+  display:flex; align-items:flex-start; justify-content:space-between;
+  padding:20px 36px;
+  background:linear-gradient(to bottom, rgba(10,6,2,0.92) 0%, transparent 100%);
+  pointer-events:none;
+}
+.brand {
+  font-family:'Bebas Neue', sans-serif;
+  font-size:36px; letter-spacing:0.12em;
+  color:var(--lava);
+  text-shadow:0 0 30px rgba(255,72,0,0.7), 0 0 60px rgba(255,72,0,0.3);
+  line-height:1;
+}
+.brand-sub {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:10px; letter-spacing:0.4em; text-transform:uppercase;
+  color:rgba(255,140,0,0.45); margin-top:4px;
+}
+.hud-stats {
+  display:flex; gap:28px; align-items:flex-start;
+}
+.hstat {
+  text-align:right;
+  font-family:'Barlow Condensed', sans-serif;
+}
+.hstat-val {
+  font-size:28px; font-weight:700; line-height:1;
+  color:var(--ember); text-shadow:0 0 16px rgba(255,204,68,0.6);
+}
+.hstat-key {
+  font-size:9px; letter-spacing:0.25em; text-transform:uppercase;
+  color:var(--muted); margin-top:3px;
+}
+
+/* ── LEGEND SIDEBAR ── */
+#legend {
+  position:fixed; left:20px; top:50%; transform:translateY(-50%);
+  z-index:60; display:flex; flex-direction:column; gap:6px;
+  pointer-events:auto;
+}
+.leg {
+  display:flex; align-items:center; gap:10px;
+  cursor:pointer; padding:9px 13px; border-radius:7px;
+  border:1px solid rgba(255,255,255,0.05);
+  background:rgba(10,6,2,0.78);
+  backdrop-filter:blur(10px);
+  transition:all 0.22s; min-width:170px;
+}
+.leg:hover, .leg.active {
+  border-color:var(--lc);
+  background:rgba(10,6,2,0.92);
+  box-shadow:0 0 16px rgba(0,0,0,0.5), 0 0 0 1px var(--lc) inset;
+  transform:translateX(4px);
+}
+.leg.dimmed { opacity:0.28; }
+.ldot { width:9px; height:9px; border-radius:50%; background:var(--lc); box-shadow:0 0 8px var(--lc); flex-shrink:0; }
+.lname {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:13px; font-weight:600; letter-spacing:0.08em;
+  color:var(--lc); text-shadow:0 0 10px var(--lc); text-transform:uppercase;
+}
+.lsub { font-family:'Courier Prime', monospace; font-size:9px; color:var(--muted); margin-top:2px; }
+
+/* ── INFO PANEL ── */
+#info-panel {
+  position:fixed; right:20px; top:50%; z-index:60;
+  transform:translateY(-50%) translateX(28px);
+  width:300px;
+  background:rgba(8,4,2,0.96);
+  border:1px solid rgba(255,72,0,0.18);
+  border-radius:16px; padding:24px;
+  backdrop-filter:blur(22px);
+  box-shadow:0 0 70px rgba(0,0,0,0.8), 0 0 30px rgba(255,72,0,0.06);
+  opacity:0; pointer-events:none;
+  transition:opacity 0.3s, transform 0.35s cubic-bezier(.4,0,.2,1);
+}
+#info-panel.show {
+  opacity:1; pointer-events:auto;
+  transform:translateY(-50%) translateX(0);
+}
+.p-tag {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:9px; letter-spacing:0.35em; text-transform:uppercase;
+  margin-bottom:10px; display:inline-block;
+  padding:3px 10px; border-radius:20px;
+  border:1px solid currentColor; background:rgba(255,255,255,0.03);
+}
+.p-name {
+  font-family:'Bebas Neue', sans-serif;
+  font-size:30px; letter-spacing:0.06em; line-height:1;
+  margin-bottom:4px; text-transform:uppercase;
+}
+.p-sub {
+  font-family:'Courier Prime', monospace; font-style:italic;
+  font-size:12px; color:var(--muted); margin-bottom:16px;
+}
+.p-rule { height:1px; margin-bottom:16px; opacity:0.3;
+  background:linear-gradient(to right, currentColor, transparent); }
+.p-desc {
+  font-size:13px; line-height:1.78;
+  color:rgba(245,232,208,0.78); margin-bottom:18px;
+}
+.p-stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px; }
+.sbox {
+  background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.06);
+  border-radius:9px; padding:9px 11px;
+}
+.sval {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:15px; font-weight:600; text-shadow:0 0 10px currentColor;
+}
+.skey { font-size:9px; color:var(--muted); letter-spacing:0.15em; text-transform:uppercase; margin-top:2px; }
+.p-alert {
+  background:rgba(255,72,0,0.08); border:1px solid rgba(255,72,0,0.25);
+  border-radius:9px; padding:11px 13px;
+  font-family:'Courier Prime', monospace; font-size:12px;
+  color:rgba(255,180,100,0.8); line-height:1.6;
+  font-style:italic;
+}
+.close-btn {
+  position:absolute; top:14px; right:14px;
+  width:26px; height:26px; border-radius:50%;
+  background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1);
+  color:var(--muted); cursor:pointer; font-size:12px;
+  display:flex; align-items:center; justify-content:center; transition:all 0.2s;
+}
+.close-btn:hover { background:rgba(255,72,0,0.15); color:var(--lava); }
+
+/* ── CONTROLS ── */
+#controls {
+  position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+  z-index:60; display:flex; align-items:center; gap:14px;
+  background:rgba(8,4,2,0.85); border:1px solid rgba(255,72,0,0.15);
+  padding:12px 22px; border-radius:50px; backdrop-filter:blur(14px);
+  box-shadow:0 0 40px rgba(0,0,0,0.6), 0 0 20px rgba(255,72,0,0.04);
+}
+.c-lbl {
+  font-family:'Barlow Condensed', sans-serif;
+  font-size:9px; letter-spacing:0.25em; text-transform:uppercase;
+  color:rgba(255,140,0,0.45);
+}
+.crange {
+  -webkit-appearance:none; appearance:none;
+  width:110px; height:2px; outline:none;
+  background:linear-gradient(to right, var(--lava), var(--ember));
+  border-radius:2px; cursor:pointer;
+}
+.crange::-webkit-slider-thumb {
+  -webkit-appearance:none; width:12px; height:12px; border-radius:50%;
+  background:#fff; box-shadow:0 0 8px var(--lava); cursor:pointer;
+}
+.cbtn {
+  background:none; border:1px solid rgba(255,72,0,0.3);
+  color:var(--lava); font-family:'Barlow Condensed', sans-serif;
+  font-weight:600; font-size:11px; letter-spacing:0.2em; text-transform:uppercase;
+  padding:6px 16px; border-radius:20px; cursor:pointer; transition:all 0.2s;
+}
+.cbtn:hover { background:rgba(255,72,0,0.1); box-shadow:0 0 16px rgba(255,72,0,0.2); }
+.cbtn.active { background:rgba(255,72,0,0.12); border-color:var(--lava); box-shadow:0 0 20px rgba(255,72,0,0.25); }
+#spd-val { font-family:'Barlow Condensed', monospace; font-size:13px; color:var(--ember); text-shadow:0 0 8px var(--ember); min-width:30px; }
+
+/* ── TOOLTIP ── */
+#tip {
+  position:fixed; z-index:200;
+  background:rgba(8,4,2,0.94); border:1px solid rgba(255,72,0,0.25);
+  border-radius:7px; padding:6px 13px;
+  font-family:'Barlow Condensed', sans-serif; font-size:11px; letter-spacing:0.12em; text-transform:uppercase;
+  pointer-events:none; opacity:0; transition:opacity 0.15s;
+  backdrop-filter:blur(8px); white-space:nowrap;
+}
+#tip.show { opacity:1; }
+
+/* Magnitude flash */
+@keyframes quakeFlash {
+  0% { transform:translate(-50%,-50%) scale(0.5); opacity:1; }
+  100% { transform:translate(-50%,-50%) scale(4); opacity:0; }
+}
+.quake-ring {
+  position:fixed; width:20px; height:20px; border-radius:50%;
+  border:2px solid rgba(255,200,0,0.7);
+  pointer-events:none; z-index:10;
+  animation:quakeFlash 1s ease-out forwards;
+}
+</style>
+</head>
+<body>
+
+<canvas id="globe-canvas"></canvas>
+<canvas id="fx-canvas"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div>
+    <div class="brand">PANGEA</div>
+    <div class="brand-sub">Tectonic Plates &amp; Volcanic Activity · Drag to rotate · Click to explore</div>
+  </div>
+  <div class="hud-stats">
+    <div class="hstat"><div class="hstat-val" id="h-volc">1,500</div><div class="hstat-key">Active Volcanoes</div></div>
+    <div class="hstat"><div class="hstat-val" id="h-quake" style="color:var(--diverge)">~55</div><div class="hstat-key">Quakes / Day</div></div>
+    <div class="hstat"><div class="hstat-val" id="h-plates" style="color:var(--magma)">15</div><div class="hstat-key">Major Plates</div></div>
+  </div>
+</div>
+
+<!-- Legend -->
+<div id="legend">
+  <div class="leg" data-type="plate-boundary" style="--lc:#ff6622">
+    <div class="ldot"></div>
+    <div><div class="lname">Plate Boundary</div><div class="lsub">Tectonic edge zones</div></div>
+  </div>
+  <div class="leg" data-type="convergent" style="--lc:#cc2200">
+    <div class="ldot"></div>
+    <div><div class="lname">Convergent</div><div class="lsub">Collision · subduction</div></div>
+  </div>
+  <div class="leg" data-type="divergent" style="--lc:#ff9944">
+    <div class="ldot"></div>
+    <div><div class="lname">Divergent</div><div class="lsub">Spreading ridges</div></div>
+  </div>
+  <div class="leg" data-type="transform" style="--lc:#ffcc44">
+    <div class="ldot"></div>
+    <div><div class="lname">Transform</div><div class="lsub">Lateral sliding faults</div></div>
+  </div>
+  <div class="leg" data-type="volcano" style="--lc:#ff4800">
+    <div class="ldot"></div>
+    <div><div class="lname">Volcano</div><div class="lsub">Active eruption sites</div></div>
+  </div>
+  <div class="leg" data-type="hotspot" style="--lc:#ff8c00">
+    <div class="ldot"></div>
+    <div><div class="lname">Hot Spot</div><div class="lsub">Mantle plume surface</div></div>
+  </div>
+  <div class="leg" data-type="earthquake" style="--lc:#ffd700">
+    <div class="ldot"></div>
+    <div><div class="lname">Seismic Zone</div><div class="lsub">Earthquake epicentres</div></div>
+  </div>
+</div>
+
+<!-- Info Panel -->
+<div id="info-panel">
+  <button class="close-btn" id="close-btn">✕</button>
+  <div class="p-tag" id="p-tag"></div>
+  <div class="p-name" id="p-name"></div>
+  <div class="p-sub" id="p-sub"></div>
+  <div class="p-rule" id="p-rule"></div>
+  <div class="p-desc" id="p-desc"></div>
+  <div class="p-stats" id="p-stats"></div>
+  <div class="p-alert" id="p-alert"></div>
+</div>
+
+<!-- Controls -->
+<div id="controls">
+  <button class="cbtn" id="btn-quake">💥 Trigger Quake</button>
+  <button class="cbtn" id="btn-erupt">🌋 Erupt</button>
+  <span class="c-lbl">Speed</span>
+  <input type="range" class="crange" id="spd" min="0" max="3" step="0.05" value="0.4">
+  <span id="spd-val">0.4×</span>
+  <button class="cbtn" id="btn-pause">⏸ Pause</button>
+</div>
+
+<!-- Tooltip -->
+<div id="tip"></div>
+
+<script>
+// ── DATA ─────────────────────────────────────────────────────────
+
+const plateData = {
+  'pacific':     { name:'Pacific Plate',      sub:'Oceanus Pacificus Placa', tag:'OCEANIC PLATE', color:'#1a6090', size:'103.3 M km²', speed:'7–11 cm/yr', type:'Oceanic', age:'180 Ma', desc:'The largest tectonic plate on Earth, covering most of the Pacific Ocean floor. It is almost entirely oceanic crust and moves northwestward. Its edges form the infamous Ring of Fire — responsible for 90% of the world\'s earthquakes and 75% of its volcanoes.', alert:'⚠ Subducting beneath North American, Philippine, and Eurasian plates at multiple points.' },
+  'north-american': { name:'North American Plate', sub:'Placa America Septentrionalis', tag:'CONTINENTAL PLATE', color:'#8b4513', size:'75.9 M km²', speed:'2.3 cm/yr', type:'Continental', age:'~3.8 Ga', desc:'One of the largest plates, carrying North America, the western North Atlantic, and the northeastern corner of Siberia. The San Andreas Fault marks its transform boundary with the Pacific Plate — one of the most seismically active zones on Earth.', alert:'San Andreas Fault: 1,300 km long — overdue for a major rupture.' },
+  'eurasian':    { name:'Eurasian Plate',      sub:'Placa Eurasiae', tag:'CONTINENTAL PLATE', color:'#6b5a3e', size:'67.8 M km²', speed:'2.1 cm/yr', type:'Continental/Mixed', age:'~2.5 Ga', desc:'Carries most of Europe and Asia. Its collision with the Indian Plate is actively building the Himalayas at 5mm per year — the fastest-rising mountain range on Earth. The boundary with the African Plate created the Alps and Mediterranean volcanic arc.', alert:'Collision with India raises the Himalayas ~5 mm per year — still growing.' },
+  'african':     { name:'African Plate',       sub:'Placa Africae', tag:'CONTINENTAL PLATE', color:'#a0522d', size:'61.3 M km²', speed:'2.15 cm/yr', type:'Continental', age:'~3.5 Ga', desc:'Carries the African continent and part of the Atlantic and Indian Ocean floors. The East African Rift System — a divergent boundary — is literally tearing Africa apart, and in ~50 million years will create a new ocean.', alert:'East African Rift is splitting Africa — a new ocean is forming in slow motion.' },
+  'antarctic':   { name:'Antarctic Plate',     sub:'Placa Antarctica', tag:'MIXED PLATE', color:'#4a8090', size:'60.9 M km²', speed:'1.4 cm/yr', type:'Mixed', age:'~100 Ma', desc:'Surrounds the Antarctic continent and is the only plate bordered entirely by divergent or convergent boundaries. Its slow movement keeps Antarctica isolated, maintaining its ice sheet. The surrounding mid-ocean ridges are among the most geologically active seafloor spreading zones.', alert:'Surrounded by spreading ridges — the Southern Ocean grows ~2 cm wider each year.' },
+  'indo-australian': { name:'Indo-Australian Plate', sub:'Placa Indo-Australiana', tag:'COMPOSITE PLATE', color:'#7a6040', size:'58.9 M km²', speed:'6–7 cm/yr', type:'Mixed', age:'~130 Ma', desc:'Formed by the merger of the Indian and Australian plates. Its northward collision with Eurasia at 45 km/h (geologically) is the engine driving Himalayan uplift. The zone beneath Java and Sumatra is one of the most destructive subduction zones — source of the 2004 Indian Ocean tsunami.', alert:'Subduction beneath Eurasia at Sunda Trench caused the catastrophic 2004 M9.1 tsunami.' },
+  'south-american': { name:'South American Plate', sub:'Placa America Australis', tag:'CONTINENTAL PLATE', color:'#9b6040', size:'43.6 M km²', speed:'1.5 cm/yr', type:'Continental', age:'~2 Ga', desc:'Carries South America and the western half of the South Atlantic. Its western boundary subducts under the Nazca Plate, creating the Andes Mountains — the longest continental mountain range. This zone produces frequent megathrust earthquakes, including the 1960 Valdivia quake — the most powerful ever recorded at M9.5.', alert:'Nazca subduction built the Andes and produced the 1960 M9.5 Valdivia earthquake.' },
+  'nazca':       { name:'Nazca Plate',         sub:'Placa Nazcae', tag:'OCEANIC PLATE', color:'#1e5070', size:'15.6 M km²', speed:'7.7 cm/yr', type:'Oceanic', age:'~26 Ma', desc:'A small but fast-moving oceanic plate in the eastern Pacific, subducting beneath the South American Plate at the Peru-Chile Trench — one of the deepest ocean trenches on Earth. This subduction is building the Andes and fueling the Andean volcanic arc with some of the world\'s most active stratovolcanoes.', alert:'Subducting at 7.7 cm/yr — fastest major subduction zone on Earth.' },
+  'ring-of-fire': { name:'Ring of Fire',       sub:'Circum-Pacificus Zona', tag:'SEISMIC BELT', color:'#ff4800', size:'40,000 km arc', speed:'Variable', type:'Boundary Zone', age:'~200 Ma', desc:'Not a single plate but a 40,000 km horseshoe of tectonic boundaries circling the Pacific Ocean. Home to 452 volcanoes (75% of all active volcanoes), the Ring of Fire produces 90% of Earth\'s earthquakes — including almost all of the most powerful ones ever recorded.', alert:'90% of all earthquakes occur here. 75% of all active volcanoes line this zone.' },
+};
+
+const featureData = {
+  volcano:    { name:'Active Volcano', tag:'VOLCANIC FEATURE', color:'#ff4800', sub:'Magmatic eruption site', desc:'Active volcanoes are vents in Earth\'s crust through which molten rock (magma), ash, and gases escape from below. Most are located at tectonic plate boundaries, where subducting oceanic crust melts, becomes less dense, and forces its way upward. Hawaii\'s volcanoes sit over a "hot spot" — a mantle plume that pierces the plate from below regardless of boundary location.', stats:[{v:'1,350+',k:'Active globally'},{v:'~800°C',k:'Lava temperature'},{v:'50+/yr',k:'Eruptions annually'},{v:'500M',k:'People at risk'}], alert:'The caldera at Yellowstone holds enough magma to coat the entire US in a meter of ash.' },
+  hotspot:    { name:'Mantle Hot Spot', tag:'THERMAL PLUME', color:'#ff8c00', sub:'Deep mantle upwelling', desc:'Hot spots are anomalously hot regions in the mantle where a thermal plume rises from near the core-mantle boundary, burning through the overlying tectonic plate. Unlike boundary volcanism, hot spots are stationary — as the plate moves over them, they leave a trail of progressively older volcanic islands. The Hawaiian Islands formed this way over 70 million years.', stats:[{v:'~40–50',k:'Known hot spots'},{v:'2,800 km',k:'Plume depth'},{v:'70 Ma',k:'Hawaiian chain age'},{v:'1,300°C',k:'Plume temp'}], alert:'The Hawaii hot spot has been burning through the Pacific Plate for 70 million years, creating the entire Hawaiian island chain.' },
+  earthquake: { name:'Seismic Zone', tag:'EARTHQUAKE BELT', color:'#ffd700', sub:'High seismic activity zone', desc:'Seismic zones are regions where stress accumulates at tectonic plate boundaries and is periodically released as earthquakes. The energy stored can build for centuries before releasing in seconds. The deadliest seismic zones lie along convergent boundaries — where one plate dives beneath another — generating shallow, high-magnitude megathrust earthquakes capable of triggering tsunamis.', stats:[{v:'~55/day',k:'Quakes globally'},{v:'M9.5',k:'Largest recorded'},{v:'17/yr',k:'M7.0+ quakes'},{v:'500 km',k:'Max rupture depth'}], alert:'The 1960 Valdivia earthquake (M9.5) released more energy than all other 20th century quakes combined.' },
+};
+
+// ── CANVAS SETUP ────────────────────────────────────────────────
+const gc = document.getElementById('globe-canvas');
+const gx = gc.getContext('2d');
+const fc = document.getElementById('fx-canvas');
+const fx = fc.getContext('2d');
+let W, H, cx, cy, R;
+
+function resize() {
+  W = gc.width = fc.width = window.innerWidth;
+  H = gc.height = fc.height = window.innerHeight;
+  cx = W/2; cy = H/2;
+  R = Math.min(W, H) * 0.32;
+}
+window.addEventListener('resize', () => { resize(); });
+resize();
+
+// ── ROTATION STATE ──────────────────────────────────────────────
+let rotY = 0, rotX = 0.25, isDragging = false, lastX, lastY;
+let autoSpeed = 0.4, paused = false;
+let zoom = 1;
+
+// ── 3D PROJECTION ───────────────────────────────────────────────
+// Convert lat/lon to 3D sphere point, apply rotation, project to 2D
+function latLonTo3D(lat, lon) {
+  const phi = (90 - lat) * Math.PI / 180;
+  const theta = (lon + 180) * Math.PI / 180;
+  return {
+    x: Math.sin(phi) * Math.cos(theta),
+    y: Math.cos(phi),
+    z: Math.sin(phi) * Math.sin(theta),
+  };
+}
+
+function rotate3D(p) {
+  // Rotate around Y axis
+  const x1 = p.x * Math.cos(rotY) + p.z * Math.sin(rotY);
+  const z1 = -p.x * Math.sin(rotY) + p.z * Math.cos(rotY);
+  // Rotate around X axis
+  const y2 = p.y * Math.cos(rotX) - z1 * Math.sin(rotX);
+  const z2 = p.y * Math.sin(rotX) + z1 * Math.cos(rotX);
+  return { x: x1, y: y2, z: z2 };
+}
+
+function project(p3) {
+  const r = rotate3D(p3);
+  const scale = R * zoom;
+  return {
+    sx: cx + r.x * scale,
+    sy: cy - r.y * scale,
+    z: r.z,
+    visible: r.z > -0.05
+  };
+}
+
+function projLatLon(lat, lon) {
+  return project(latLonTo3D(lat, lon));
+}
+
+// ── TECTONIC PLATE BOUNDARIES ───────────────────────────────────
+// Each boundary: array of [lat, lon] points + type
+const boundaries = [
+  // ── PACIFIC PLATE edges ──
+  { type:'convergent', plate:'pacific', pts:[
+    [60,170],[55,165],[50,156],[45,148],[40,140],[35,138],[30,135],[25,130],[20,125],[15,120],[10,126],[5,127],[0,128],[-5,125],[-10,120],[-15,112],[-20,110],[-25,115],[-30,110],[-35,105],[-40,100],[-45,95],[-50,90],[-55,85],[-60,80]
+  ]},
+  // Pacific-North America (San Andreas region)
+  { type:'transform', plate:'north-american', pts:[
+    [60,-165],[55,-158],[50,-152],[45,-147],[40,-140],[37,-122],[35,-118],[33,-116],[30,-113],[27,-110]
+  ]},
+  // Mid-Atlantic Ridge (divergent)
+  { type:'divergent', plate:'eurasian', pts:[
+    [70,-10],[65,-20],[60,-28],[55,-32],[50,-35],[45,-30],[40,-28],[35,-24],[30,-22],[25,-20],[20,-18],[15,-16],[10,-14],[5,-12],[0,-10],[-5,-10],[-10,-12],[-15,-10],[-20,-12],[-25,-14],[-30,-14],[-35,-16],[-40,-16],[-45,-15],[-50,-14],[-55,-10],[-60,-8]
+  ]},
+  // East Pacific Rise (divergent)
+  { type:'divergent', plate:'nazca', pts:[
+    [25,-110],[20,-108],[15,-106],[10,-104],[5,-103],[0,-102],[-5,-101],[-10,-100],[-15,-100],[-20,-101],[-25,-102],[-30,-105],[-35,-108],[-40,-110],[-45,-112]
+  ]},
+  // Peru-Chile Trench (convergent)
+  { type:'convergent', plate:'south-american', pts:[
+    [5,-80],[0,-80],[-5,-79],[-10,-78],[-15,-76],[-20,-70],[-25,-68],[-30,-70],[-35,-72],[-40,-74],[-45,-76],[-50,-76],[-55,-70]
+  ]},
+  // Aleutian Trench
+  { type:'convergent', plate:'north-american', pts:[
+    [58,-170],[57,-175],[56,175],[55,170],[54,165],[53,160],[52,158],[51,155]
+  ]},
+  // Japan Trench area
+  { type:'convergent', plate:'eurasian', pts:[
+    [45,150],[42,145],[38,143],[35,142],[32,140],[30,138],[28,136],[25,130]
+  ]},
+  // Philippine / Java trench
+  { type:'convergent', plate:'indo-australian', pts:[
+    [20,125],[15,120],[10,118],[5,115],[0,110],[-5,108],[-10,110],[-15,115]
+  ]},
+  // Indian-Eurasian Himalayas collision
+  { type:'convergent', plate:'eurasian', pts:[
+    [30,60],[30,65],[30,70],[30,75],[30,80],[30,85],[30,88],[28,90],[26,92]
+  ]},
+  // East African Rift
+  { type:'divergent', plate:'african', pts:[
+    [15,42],[12,40],[8,38],[4,37],[0,36],[-4,36],[-8,35],[-12,35],[-16,35],[-20,35],[-24,35]
+  ]},
+  // Mid-Indian Ridge
+  { type:'divergent', plate:'indo-australian', pts:[
+    [15,68],[10,67],[5,67],[0,66],[-5,66],[-10,67],[-15,68],[-20,68],[-25,70],[-30,72],[-35,75],[-40,78]
+  ]},
+  // Caribbean / Central America
+  { type:'convergent', plate:'north-american', pts:[
+    [20,-85],[18,-83],[16,-82],[14,-90],[12,-88],[10,-86],[8,-80],[6,-77]
+  ]},
+  // Antarctic spreading ridges
+  { type:'divergent', plate:'antarctic', pts:[
+    [-55,0],[-58,20],[-60,40],[-62,60],[-60,80],[-58,100],[-56,120],[-54,140],[-55,160],[-58,175],[-60,-170],[-58,-150],[-55,-130],[-52,-110],[-55,-90],[-57,-70],[-55,-45],[-55,-20]
+  ]},
+];
+
+// ── VOLCANOES ────────────────────────────────────────────────────
+const volcanoes = [
+  // Ring of Fire
+  {lat:60.5,lon:-152.7,name:'Redoubt', mag:3},{lat:19.5,lon:-155.5,name:'Kilauea',mag:4},
+  {lat:19.4,lon:-155.3,name:'Mauna Loa',mag:4},{lat:34.5,lon:135.7,name:'Aso',mag:2},
+  {lat:35.6,lon:138.7,name:'Fuji',mag:3},{lat:43.1,lon:141.5,name:'Usu',mag:2},
+  {lat:51.9,lon:179.6,name:'Cleveland',mag:3},{lat:54.8,lon:163.9,name:'Shishaldin',mag:3},
+  {lat:13.7,lon:90.6,name:'Santiaguito',mag:2},{lat:14.5,lon:-90.8,name:'Fuego',mag:4},
+  {lat:1.6,lon:-78.0,name:'Tungurahua',mag:3},{lat:-0.7,lon:-91.1,name:'Wolf',mag:3},
+  {lat:-15.9,lon:-71.5,name:'Ubinas',mag:2},{lat:-16.7,lon:-71.4,name:'Ticsani',mag:2},
+  {lat:16.7,lon:120.1,name:'Pinatubo',mag:3},{lat:7.5,lon:126.8,name:'Apo',mag:2},
+  {lat:-8.3,lon:115.2,name:'Agung',mag:4},{lat:-7.9,lon:110.4,name:'Merapi',mag:4},
+  {lat:37.7,lon:15.0,name:'Etna',mag:4},{lat:40.8,lon:14.4,name:'Vesuvius',mag:3},
+  {lat:38.5,lon:15.2,name:'Stromboli',mag:3},{lat:64.1,lon:-19.6,name:'Hekla',mag:3},
+  {lat:63.6,lon:-19.6,name:'Eyjafjallajokull',mag:3},{lat:27.1,lon:-112.5,name:'Tres Virgenes',mag:2},
+  {lat:-22.3,lon:-68.2,name:'Lascar',mag:3},{lat:-23.3,lon:-67.7,name:'Llullaillaco',mag:2},
+  {lat:-40.6,lon:-72.1,name:'Villarrica',mag:4},{lat:-45.9,lon:-72.0,name:'Hudson',mag:3},
+  {lat:-38.1,lon:145.7,name:'Heard',mag:2},{lat:56.2,lon:160.6,name:'Klyuchevskoy',mag:4},
+  {lat:28.3,lon:-16.6,name:'Teide',mag:2},{lat:0.4,lon:6.9,name:'Cameroon',mag:2},
+  {lat:-2.5,lon:29.2,name:'Nyiragongo',mag:4},{lat:3.2,lon:29.5,name:'Nyamulagira',mag:3},
+];
+
+// Hot spots
+const hotspots = [
+  {lat:19.5,lon:-155.5,name:'Hawaii Plume'},{lat:64.0,lon:-19.0,name:'Iceland Plume'},
+  {lat:-2.0,lon:29.5,name:'Afar Triangle'},{lat:44.4,lon:-110.7,name:'Yellowstone'},
+  {lat:-37.8,lon:77.5,name:'Kerguelen'},{lat:-54.0,lon:-37.8,name:'Bouvet'},
+  {lat:45.0,lon:-28.0,name:'Azores'},{lat:31.0,lon:-9.5,name:'Canary Plume'},
+];
+
+// Earthquake zones (lat/lon clusters)
+const quakeZones = [
+  // Cascadia
+  {lat:47,lon:-125},{lat:44,lon:-124},{lat:42,lon:-124},{lat:40,lon:-125},
+  // San Andreas
+  {lat:37,lon:-122},{lat:35,lon:-119},{lat:34,lon:-117},{lat:32,lon:-115},
+  // Alaska
+  {lat:61,lon:-150},{lat:60,lon:-147},{lat:58,lon:-137},
+  // Japan
+  {lat:38,lon:142},{lat:36,lon:141},{lat:34,lon:138},
+  // Indonesia
+  {lat:-5,lon:103},{lat:-7,lon:107},{lat:-2,lon:99},
+  // Chile
+  {lat:-36,lon:-71},{lat:-30,lon:-70},{lat:-22,lon:-69},
+  // Himalayas
+  {lat:30,lon:79},{lat:28,lon:86},{lat:34,lon:74},
+  // Turkey
+  {lat:39,lon:32},{lat:40,lon:28},{lat:37,lon:36},
+  // Italy
+  {lat:41,lon:15},{lat:38,lon:15},{lat:37,lon:14},
+  // Tonga
+  {lat:-20,lon:-175},{lat:-22,lon:-173},{lat:-18,lon:178},
+];
+
+// ── LIVE EFFECTS (quake rings, eruption particles) ───────────────
+let liveEffects = [];
+
+function spawnQuake(lat, lon) {
+  const p = projLatLon(lat, lon);
+  if (!p.visible) return;
+  const el = document.createElement('div');
+  el.className = 'quake-ring';
+  el.style.left = p.sx + 'px';
+  el.style.top = p.sy + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1100);
+  liveEffects.push({ type:'quake', lat, lon, t:0, maxT:60, sx:p.sx, sy:p.sy });
+}
+
+function spawnEruption(lat, lon) {
+  for(let i=0;i<18;i++) {
+    liveEffects.push({
+      type:'ember', lat, lon,
+      t:0, maxT: 80 + Math.random()*40,
+      vx: (Math.random()-0.5)*3,
+      vy: -(1.5+Math.random()*3),
+      ay: 0.08,
+      size: 2+Math.random()*4,
+      color: ['#ff4800','#ff8c00','#ffcc44','#ffffff'][Math.floor(Math.random()*4)],
+    });
+  }
+}
+
+// ── DRAW ────────────────────────────────────────────────────────
+function drawGlobe() {
+  gx.clearRect(0,0,W,H);
+
+  // ── EARTH BASE SPHERE ──
+  const baseR = R * zoom;
+
+  // Ocean
+  const oceanGrd = gx.createRadialGradient(cx-baseR*0.3, cy-baseR*0.3, baseR*0.05, cx, cy, baseR);
+  oceanGrd.addColorStop(0,'#1a5a8a');
+  oceanGrd.addColorStop(0.4,'#0e3858');
+  oceanGrd.addColorStop(0.75,'#061828');
+  oceanGrd.addColorStop(1,'#030c14');
+
+  gx.beginPath(); gx.arc(cx, cy, baseR, 0, Math.PI*2);
+  gx.fillStyle = oceanGrd;
+  gx.shadowBlur = 60; gx.shadowColor = 'rgba(10,60,100,0.5)';
+  gx.fill(); gx.shadowBlur = 0;
+
+  // Land masses (simplified continents as polygon fills)
+  drawContinents();
+
+  // Atmosphere glow
+  const atmGrd = gx.createRadialGradient(cx, cy, baseR*0.92, cx, cy, baseR*1.12);
+  atmGrd.addColorStop(0,'rgba(255,80,0,0)');
+  atmGrd.addColorStop(0.5,'rgba(255,80,0,0.04)');
+  atmGrd.addColorStop(1,'rgba(255,80,0,0)');
+  gx.beginPath(); gx.arc(cx, cy, baseR*1.12, 0, Math.PI*2);
+  gx.fillStyle = atmGrd; gx.fill();
+
+  // ── PLATE BOUNDARIES ──
+  boundaries.forEach(b => {
+    const t = Date.now()/1000;
+    const colors = { convergent:'#cc2200', divergent:'#ff9944', transform:'#ffcc44', 'plate-boundary':'#ff6622' };
+    const col = colors[b.type] || '#ff6622';
+    const hi = activeType === b.type || activeType === 'plate-boundary';
+
+    gx.beginPath();
+    let first = true;
+    b.pts.forEach(([lat, lon]) => {
+      const p = projLatLon(lat, lon);
+      if(p.visible) {
+        if(first) { gx.moveTo(p.sx, p.sy); first=false; }
+        else gx.lineTo(p.sx, p.sy);
+      } else first = true;
+    });
+    gx.strokeStyle = hi ? col : col + '99';
+    gx.lineWidth = hi ? 2.5 : 1.5;
+    gx.shadowBlur = hi ? 18 : 6;
+    gx.shadowColor = col;
+    gx.lineCap = 'round'; gx.lineJoin = 'round';
+    gx.stroke();
+
+    // Dashed animated energy for convergent
+    if(b.type==='convergent' && hi) {
+      gx.setLineDash([6, 8]);
+      gx.lineDashOffset = -t*20;
+      gx.strokeStyle = 'rgba(255,50,0,0.4)';
+      gx.lineWidth = 4;
+      gx.shadowBlur = 14;
+      gx.stroke();
+      gx.setLineDash([]);
+    }
+  });
+  gx.shadowBlur = 0;
+
+  // ── VOLCANOES ──
+  const t = Date.now()/1000;
+  volcanoes.forEach(v => {
+    const p = projLatLon(v.lat, v.lon);
+    if(!p.visible) return;
+    const hi = activeType==='volcano';
+    const pulse = 0.6 + 0.4*Math.sin(t*2 + v.lat*0.3 + v.lon*0.1);
+    const r = (3 + v.mag) * (hi ? 1.4 : 0.9) * pulse * zoom;
+
+    // Outer glow
+    gx.beginPath(); gx.arc(p.sx, p.sy, r*2.5, 0, Math.PI*2);
+    gx.fillStyle = `rgba(255,72,0,${0.06*pulse*(hi?2:1)})`;
+    gx.shadowBlur = 0; gx.fill();
+
+    // Core
+    gx.beginPath(); gx.arc(p.sx, p.sy, r, 0, Math.PI*2);
+    const vgrd = gx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r);
+    vgrd.addColorStop(0,'rgba(255,255,220,0.95)');
+    vgrd.addColorStop(0.4,'rgba(255,160,0,0.9)');
+    vgrd.addColorStop(1,'rgba(220,30,0,0.8)');
+    gx.fillStyle = vgrd;
+    gx.shadowBlur = hi ? 20 : 10; gx.shadowColor='#ff4800'; gx.fill();
+    gx.shadowBlur = 0;
+  });
+
+  // ── HOT SPOTS ──
+  hotspots.forEach(h => {
+    const p = projLatLon(h.lat, h.lon);
+    if(!p.visible) return;
+    const hi = activeType==='hotspot';
+    const pulse = 0.7 + 0.3*Math.sin(t*1.2 + h.lat*0.5);
+
+    // Pulsing ring
+    gx.beginPath(); gx.arc(p.sx, p.sy, (hi?18:12)*pulse*zoom, 0, Math.PI*2);
+    gx.strokeStyle = `rgba(255,140,0,${0.3*pulse*(hi?1.5:1)})`;
+    gx.lineWidth=1.5; gx.shadowBlur=10; gx.shadowColor='#ff8c00'; gx.stroke();
+
+    gx.beginPath(); gx.arc(p.sx, p.sy, (hi?8:5)*zoom, 0, Math.PI*2);
+    gx.fillStyle = `rgba(255,180,60,${0.7*pulse})`;
+    gx.shadowBlur=hi?16:8; gx.shadowColor='#ff8c00'; gx.fill();
+    gx.shadowBlur=0;
+  });
+
+  // ── EARTHQUAKE ZONES ──
+  quakeZones.forEach(q => {
+    const p = projLatLon(q.lat, q.lon);
+    if(!p.visible) return;
+    const hi = activeType==='earthquake';
+    const flicker = Math.random()<0.015 ? 1 : 0;
+    const r = (hi?7:5)*zoom;
+
+    if(flicker || hi) {
+      gx.beginPath(); gx.arc(p.sx, p.sy, r*2, 0, Math.PI*2);
+      gx.fillStyle = `rgba(255,215,0,${flicker?0.3:0.08})`;
+      gx.shadowBlur=flicker?18:0; gx.shadowColor='#ffd700'; gx.fill();
+    }
+
+    gx.beginPath(); gx.arc(p.sx, p.sy, r*0.6, 0, Math.PI*2);
+    gx.fillStyle = hi ? 'rgba(255,215,0,0.7)' : 'rgba(255,215,0,0.3)';
+    gx.shadowBlur=hi?12:4; gx.shadowColor='#ffd700'; gx.fill();
+    gx.shadowBlur=0;
+  });
+
+  // ── LIVE EFFECTS ──
+  fx.clearRect(0,0,W,H);
+  liveEffects = liveEffects.filter(e => e.t < e.maxT);
+  liveEffects.forEach(e => {
+    e.t++;
+    if(e.type==='ember') {
+      e.vx *= 0.97; e.vy += e.ay;
+      const p = projLatLon(e.lat, e.lon);
+      if(!p.visible) return;
+      const ex = p.sx + e.vx * e.t * 0.5;
+      const ey = p.sy + e.vy * e.t * 0.4 + 0.5*e.ay*e.t*e.t*0.1;
+      const alpha = Math.max(0, 1 - e.t/e.maxT);
+      fx.beginPath(); fx.arc(ex, ey, e.size*(1-e.t/e.maxT*0.5), 0, Math.PI*2);
+      fx.fillStyle = e.color;
+      fx.globalAlpha = alpha;
+      fx.shadowBlur = 10; fx.shadowColor = e.color; fx.fill();
+      fx.globalAlpha = 1; fx.shadowBlur=0;
+    }
+  });
+
+  // Sphere edge overlay
+  const edgeGrd = gx.createRadialGradient(cx,cy,baseR*0.7,cx,cy,baseR);
+  edgeGrd.addColorStop(0,'rgba(0,0,0,0)');
+  edgeGrd.addColorStop(0.85,'rgba(0,0,0,0)');
+  edgeGrd.addColorStop(1,'rgba(0,0,0,0.65)');
+  gx.beginPath(); gx.arc(cx,cy,baseR,0,Math.PI*2);
+  gx.fillStyle=edgeGrd; gx.fill();
+
+  // Specular highlight
+  const specGrd = gx.createRadialGradient(cx-baseR*0.35,cy-baseR*0.35,0,cx-baseR*0.2,cy-baseR*0.2,baseR*0.55);
+  specGrd.addColorStop(0,'rgba(255,180,100,0.12)');
+  specGrd.addColorStop(1,'rgba(255,100,0,0)');
+  gx.beginPath(); gx.arc(cx,cy,baseR,0,Math.PI*2);
+  gx.fillStyle=specGrd; gx.fill();
+}
+
+function drawContinents() {
+  // Approximate continent outlines as closed lat/lon polygons
+  const continents = [
+    { color:'#3d2b10', pts:[ // North America
+      [70,-140],[68,-90],[65,-75],[60,-65],[50,-55],[45,-60],[40,-70],[35,-75],[30,-80],[25,-80],[20,-87],[17,-92],[15,-90],[14,-83],[10,-83],[8,-77],[10,-60],[20,-60],[25,-55],[30,-50],[40,-50],[50,-53],[55,-60],[60,-63],[65,-70],[70,-100],[72,-120],[70,-140]
+    ]},
+    { color:'#3a2510', pts:[ // South America
+      [10,-75],[5,-77],[0,-80],[-5,-80],[-10,-75],[-15,-75],[-20,-70],[-25,-65],[-30,-65],[-35,-72],[-40,-72],[-45,-72],[-50,-68],[-55,-65],[-55,-60],[-50,-55],[-45,-50],[-40,-48],[-30,-48],[-25,-48],[-20,-40],[-15,-38],[-10,-37],[-5,-35],[0,-50],[5,-52],[8,-60],[10,-65],[10,-75]
+    ]},
+    { color:'#4a3318', pts:[ // Europe
+      [70,30],[65,30],[60,25],[55,20],[50,15],[45,12],[40,18],[38,26],[40,36],[42,40],[45,38],[50,30],[55,22],[58,22],[60,25],[65,24],[70,25],[70,30]
+    ]},
+    { color:'#5a3d1a', pts:[ // Africa
+      [37,10],[35,12],[30,32],[25,36],[20,38],[15,42],[10,44],[5,42],[0,42],[-5,40],[-10,38],[-15,35],[-20,35],[-25,32],[-30,30],[-35,26],[-34,18],[-30,15],[-25,14],[-20,16],[-15,12],[-10,10],[-5,10],[0,8],[5,3],[10,2],[15,0],[20,-15],[25,-14],[30,-10],[35,0],[37,10]
+    ]},
+    { color:'#6b4a20', pts:[ // Asia
+      [70,30],[65,35],[60,40],[55,50],[50,60],[45,60],[40,50],[35,48],[30,50],[25,57],[20,60],[15,73],[10,76],[5,80],[0,110],[5,100],[10,100],[15,100],[20,92],[25,88],[30,90],[35,100],[40,110],[45,120],[50,130],[55,130],[60,140],[65,145],[70,140],[72,130],[70,110],[68,90],[70,60],[70,40],[70,30]
+    ]},
+    { color:'#4a3520', pts:[ // Australia
+      [-15,130],[-10,136],[-12,142],[-18,147],[-22,150],[-28,153],[-32,152],[-36,148],[-38,145],[-40,148],[-38,140],[-35,135],[-32,125],[-28,115],[-22,114],[-18,122],[-15,130]
+    ]},
+  ];
+
+  continents.forEach(cont => {
+    gx.beginPath();
+    let first=true;
+    cont.pts.forEach(([lat,lon]) => {
+      const p = projLatLon(lat,lon);
+      if(!p.visible && !first) { first=true; return; }
+      if(first) { gx.moveTo(p.sx,p.sy); first=false; }
+      else gx.lineTo(p.sx,p.sy);
+    });
+    gx.closePath();
+    gx.fillStyle=cont.color;
+    gx.shadowBlur=0; gx.fill();
+    gx.strokeStyle='rgba(255,100,30,0.15)'; gx.lineWidth=0.5; gx.stroke();
+  });
+}
+
+// ── ACTIVE SELECTION ────────────────────────────────────────────
+let activeType = null;
+let activeKey = null;
+
+function selectType(type, key) {
+  activeType = type; activeKey = key;
+  // Legend
+  document.querySelectorAll('.leg').forEach(l => {
+    l.classList.toggle('active', l.dataset.type===type);
+    l.classList.toggle('dimmed', l.dataset.type!==type);
+  });
+  showPanel(type, key);
+}
+
+function clearSel() {
+  activeType = null; activeKey = null;
+  document.querySelectorAll('.leg').forEach(l => l.classList.remove('active','dimmed'));
+  document.getElementById('info-panel').classList.remove('show');
+}
+
+function showPanel(type, key) {
+  let d = featureData[type] || plateData[key] || featureData['earthquake'];
+  if(!d) return;
+  const col = d.color || '#ff6622';
+  const panel = document.getElementById('info-panel');
+  document.getElementById('p-tag').textContent = d.tag || type.toUpperCase();
+  document.getElementById('p-tag').style.color = col;
+  document.getElementById('p-tag').style.borderColor = col + '55';
+  document.getElementById('p-name').textContent = d.name;
+  document.getElementById('p-name').style.color = col;
+  document.getElementById('p-name').style.textShadow = `0 0 22px ${col}`;
+  document.getElementById('p-sub').textContent = d.sub || '';
+  document.getElementById('p-rule').style.color = col;
+  document.getElementById('p-desc').textContent = d.desc;
+  if(d.stats) {
+    document.getElementById('p-stats').innerHTML = d.stats.map(s=>`
+      <div class="sbox"><div class="sval" style="color:${col};text-shadow:0 0 10px ${col}">${s.v}</div><div class="skey">${s.k}</div></div>
+    `).join('');
+  } else if(d.size) {
+    document.getElementById('p-stats').innerHTML = [
+      {v:d.size,k:'Area'},{v:d.speed,k:'Move speed'},{v:d.type,k:'Plate type'},{v:d.age,k:'Crust age'}
+    ].map(s=>`<div class="sbox"><div class="sval" style="color:${col};text-shadow:0 0 10px ${col}">${s.v}</div><div class="skey">${s.k}</div></div>`).join('');
+  }
+  document.getElementById('p-alert').textContent = d.alert || '';
+  panel.classList.add('show');
+}
+
+// Legend clicks
+document.querySelectorAll('.leg').forEach(li => {
+  li.addEventListener('click', () => {
+    const t = li.dataset.type;
+    if(activeType===t) { clearSel(); return; }
+    selectType(t, t==='divergent'?'eurasian':t==='convergent'?'pacific':t==='transform'?'north-american':t==='volcano'?'volcano':t==='hotspot'?'hotspot':t==='earthquake'?'earthquake':'ring-of-fire');
+  });
+});
+
+// Canvas click — detect near features
+gc.addEventListener('click', (e) => {
+  const mx=e.offsetX, my=e.offsetY;
+  // Check volcanoes
+  for(const v of volcanoes) {
+    const p=projLatLon(v.lat,v.lon);
+    if(!p.visible) continue;
+    const dx=mx-p.sx,dy=my-p.sy;
+    if(dx*dx+dy*dy<400) { selectType('volcano','volcano'); return; }
+  }
+  // Check hotspots
+  for(const h of hotspots) {
+    const p=projLatLon(h.lat,h.lon);
+    if(!p.visible) continue;
+    const dx=mx-p.sx,dy=my-p.sy;
+    if(dx*dx+dy*dy<600) { selectType('hotspot','hotspot'); return; }
+  }
+  // Check quake zones
+  for(const q of quakeZones) {
+    const p=projLatLon(q.lat,q.lon);
+    if(!p.visible) continue;
+    const dx=mx-p.sx,dy=my-p.sy;
+    if(dx*dx+dy*dy<500) { selectType('earthquake','earthquake'); return; }
+  }
+  clearSel();
+});
+
+// Tooltip
+const tip = document.getElementById('tip');
+gc.addEventListener('mousemove', (e) => {
+  const mx=e.offsetX, my=e.offsetY;
+  let found=null, col='#ff4800';
+  for(const v of volcanoes) {
+    const p=projLatLon(v.lat,v.lon);
+    if(!p.visible) continue;
+    const dx=mx-p.sx,dy=my-p.sy;
+    if(dx*dx+dy*dy<400) { found=v.name+' Volcano'; col='#ff4800'; break; }
+  }
+  if(!found) for(const h of hotspots) {
+    const p=projLatLon(h.lat,h.lon);
+    if(!p.visible) continue;
+    const dx=mx-p.sx,dy=my-p.sy;
+    if(dx*dx+dy*dy<600) { found=h.name; col='#ff8c00'; break; }
+  }
+  if(found) {
+    tip.textContent=found; tip.style.color=col;
+    tip.style.left=(e.clientX+16)+'px'; tip.style.top=(e.clientY-8)+'px';
+    tip.classList.add('show'); gc.style.cursor='pointer';
+  } else { tip.classList.remove('show'); gc.style.cursor=isDragging?'grabbing':'grab'; }
+});
+gc.addEventListener('mouseleave',()=>tip.classList.remove('show'));
+
+document.getElementById('close-btn').addEventListener('click', clearSel);
+
+// ── DRAG ─────────────────────────────────────────────────────────
+gc.addEventListener('mousedown', e=>{isDragging=true;lastX=e.clientX;lastY=e.clientY;document.body.classList.add('dragging');});
+window.addEventListener('mouseup',()=>{isDragging=false;document.body.classList.remove('dragging');});
+window.addEventListener('mousemove',e=>{
+  if(!isDragging) return;
+  rotY += (e.clientX-lastX)*0.008;
+  rotX = Math.max(-1.2, Math.min(1.2, rotX - (e.clientY-lastY)*0.006));
+  lastX=e.clientX; lastY=e.clientY;
+});
+gc.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(0.5,Math.min(2.2,zoom-e.deltaY*0.001));},{passive:false});
+// Touch
+gc.addEventListener('touchstart',e=>{isDragging=true;lastX=e.touches[0].clientX;lastY=e.touches[0].clientY;});
+window.addEventListener('touchend',()=>isDragging=false);
+window.addEventListener('touchmove',e=>{
+  if(!isDragging) return;
+  rotY+=(e.touches[0].clientX-lastX)*0.008;
+  rotX=Math.max(-1.2,Math.min(1.2,rotX-(e.touches[0].clientY-lastY)*0.006));
+  lastX=e.touches[0].clientX; lastY=e.touches[0].clientY;
+});
+
+// ── CONTROLS ─────────────────────────────────────────────────────
+document.getElementById('btn-quake').addEventListener('click', () => {
+  const q = quakeZones[Math.floor(Math.random()*quakeZones.length)];
+  spawnQuake(q.lat, q.lon);
+  // Ripple nearby
+  setTimeout(()=>{ const q2=quakeZones[Math.floor(Math.random()*quakeZones.length)]; spawnQuake(q2.lat,q2.lon); },300);
+});
+
+document.getElementById('btn-erupt').addEventListener('click', () => {
+  const v = volcanoes[Math.floor(Math.random()*volcanoes.length)];
+  spawnEruption(v.lat, v.lon);
+  selectType('volcano','volcano');
+});
+
+const spdRange = document.getElementById('spd');
+spdRange.addEventListener('input', () => {
+  autoSpeed = parseFloat(spdRange.value);
+  document.getElementById('spd-val').textContent = autoSpeed.toFixed(1)+'×';
+});
+
+const btnPause = document.getElementById('btn-pause');
+btnPause.addEventListener('click', ()=>{
+  paused=!paused;
+  btnPause.textContent=paused?'▶ Resume':'⏸ Pause';
+  btnPause.classList.toggle('active',paused);
+});
+
+// ── MAIN LOOP ─────────────────────────────────────────────────────
+function loop() {
+  requestAnimationFrame(loop);
+  if(!isDragging && !paused) rotY += autoSpeed * 0.003;
+  drawGlobe();
+}
+
+loop();
+
+// Random quakes occasionally
+setInterval(()=>{
+  if(Math.random()<0.4) {
+    const q=quakeZones[Math.floor(Math.random()*quakeZones.length)];
+    spawnQuake(q.lat,q.lon);
+  }
+}, 3000);
+</script>
+</body>
+</html>
